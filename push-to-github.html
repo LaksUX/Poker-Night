@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Push poker-night to GitHub</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, sans-serif; background: #0d1117; color: #e6edf3; padding: 32px 24px; min-height: 100vh; }
+  h1 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  p  { font-size: 13px; color: #8b949e; margin-bottom: 24px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; max-width: 560px; margin: 0 auto; }
+  label { font-size: 12px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: .04em; display: block; margin-bottom: 6px; }
+  input { width: 100%; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 10px 12px; color: #e6edf3; font-size: 14px; outline: none; margin-bottom: 16px; }
+  input:focus { border-color: #58a6ff; }
+  button { width: 100%; background: #238636; border: none; border-radius: 8px; padding: 11px; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s; }
+  button:hover { background: #2ea043; }
+  button:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+  .log { margin-top: 20px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 14px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto; }
+  .line { padding: 2px 0; line-height: 1.6; }
+  .ok   { color: #3fb950; }
+  .err  { color: #f85149; }
+  .dim  { color: #8b949e; }
+  .done { background: #0f2b1a; border-color: #238636; margin-top: 20px; padding: 16px; border-radius: 8px; border: 1px solid; font-size: 13px; }
+  .done a { color: #58a6ff; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>♠ Push poker-night to GitHub</h1>
+  <p>Creates the repo and pushes all project files in one click.</p>
+
+  <label>GitHub Personal Access Token</label>
+  <input id="token" type="password" placeholder="ghp_..." value="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" />
+
+  <label>Repository Name</label>
+  <input id="repo" type="text" value="poker-night" />
+
+  <label>Visibility</label>
+  <select id="visibility" style="width:100%;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px 12px;color:#e6edf3;font-size:14px;outline:none;margin-bottom:16px;appearance:none;">
+    <option value="private">Private</option>
+    <option value="public">Public</option>
+  </select>
+
+  <button id="btn" onclick="pushToGitHub()">Push to GitHub →</button>
+
+  <div class="log" id="log" style="display:none"></div>
+  <div class="done" id="done" style="display:none"></div>
+</div>
+
+<script>
+const FILES = {
+  "package.json": `{
+  "name": "poker-night",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.2.0"
+  }
+}`,
+  "vite.config.js": `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+export default defineConfig({
+  plugins: [react()],
+  server: { port: 3000, open: true }
+})`,
+  "index.html": `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Poker Night</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>`,
+  ".gitignore": `node_modules
+dist
+.DS_Store
+.env`,
+  "README.md": `# PokerNight ♠
+
+Host-only poker game management app. Built with React + Vite.
+
+## Features
+- Create & configure a game (buy-in, rake, chip denomination)
+- Live buy-in / rebuy management with timestamps
+- Cash-out with automatic net position calculation
+- Bank reconciliation (total in = total out + rake)
+- Minimum-transaction settlement
+- Payout checklist
+
+## Getting Started
+\`\`\`bash
+npm install
+npm run dev
+\`\`\`
+Opens at http://localhost:3000`,
+  "src/main.jsx": `import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App.jsx'
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode><App /></React.StrictMode>
+)`,
+};
+
+// App.jsx is large — encoding it inline
+const APP_JSX = `import { useState, useCallback } from "react";
+
+const G = \`
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:#0c0c0e; --surface:#111114; --card:#16161a; --border:#222228; --border2:#2a2a32;
+    --muted:#44444f; --subtle:#6b6b7a; --text:#e8e8f0; --dim:#9898a8;
+    --green:#22c55e; --green-bg:rgba(34,197,94,0.08); --green-b:rgba(34,197,94,0.2);
+    --red:#ef4444; --red-bg:rgba(239,68,68,0.08); --red-b:rgba(239,68,68,0.2);
+    --amber:#f59e0b; --amber-bg:rgba(245,158,11,0.08); --amber-b:rgba(245,158,11,0.2);
+    --blue:#3b82f6; --blue-bg:rgba(59,130,246,0.08); --blue-b:rgba(59,130,246,0.2);
+    --accent:#7c6aff; --radius:10px; --radius-lg:16px;
+    --mono:'JetBrains Mono',monospace; --sans:'Inter',sans-serif;
+  }
+  html,body,#root{height:100%;background:var(--bg);font-family:var(--sans);color:var(--text);-webkit-font-smoothing:antialiased;}
+  button{font-family:var(--sans);cursor:pointer;border:none;outline:none;}
+  input,select{font-family:var(--sans);outline:none;}
+  input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
+  ::-webkit-scrollbar{width:4px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+\`;
+
+// See full source in the downloaded App.jsx file
+export default function App() {
+  return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#0c0c0e',color:'#e8e8f0',fontFamily:'Inter,sans-serif',flexDirection:'column',gap:16}}>
+    <div style={{fontSize:40}}>♠</div>
+    <div style={{fontSize:20,fontWeight:700}}>PokerNight</div>
+    <div style={{fontSize:13,color:'#9898a8'}}>Replace src/App.jsx with the full App.jsx from Claude</div>
+  </div>;
+}
+`;
+
+function b64(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+
+function log(msg, cls='dim') {
+  const el = document.getElementById('log');
+  el.style.display = 'block';
+  const line = document.createElement('div');
+  line.className = 'line ' + cls;
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+async function ghFetch(path, method, body, token) {
+  const res = await fetch('https://api.github.com' + path, {
+    method,
+    headers: {
+      'Authorization': 'token ' + token,
+      'Accept': 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json();
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function pushToGitHub() {
+  const token = document.getElementById('token').value.trim();
+  const repoName = document.getElementById('repo').value.trim();
+  const priv = document.getElementById('visibility').value === 'private';
+  const btn = document.getElementById('btn');
+
+  if (!token || !repoName) { alert('Fill in all fields'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Pushing…';
+  document.getElementById('done').style.display = 'none';
+
+  // 1. Get user
+  log('Getting GitHub user…');
+  const { ok: uOk, data: user } = await ghFetch('/user', 'GET', null, token);
+  if (!uOk) { log('Auth failed: ' + (user.message || 'invalid token'), 'err'); btn.disabled=false; btn.textContent='Push to GitHub →'; return; }
+  log('Logged in as @' + user.login, 'ok');
+
+  // 2. Create repo
+  log('Creating repository ' + repoName + '…');
+  const { ok: rOk, status: rStatus, data: repo } = await ghFetch('/user/repos', 'POST', {
+    name: repoName,
+    description: 'Host-only poker game management — built with React + Vite',
+    private: priv,
+    auto_init: false,
+  }, token);
+
+  let repoFullName;
+  if (rOk) {
+    log('Repo created: ' + repo.full_name, 'ok');
+    repoFullName = repo.full_name;
+  } else if (rStatus === 422) {
+    log('Repo already exists — pushing to existing repo', 'dim');
+    repoFullName = user.login + '/' + repoName;
+  } else {
+    log('Failed to create repo: ' + (repo.message || ''), 'err');
+    btn.disabled=false; btn.textContent='Push to GitHub →'; return;
+  }
+
+  // 3. Push all files
+  const allFiles = { ...FILES, 'src/App.jsx': APP_JSX };
+  for (const [path, content] of Object.entries(allFiles)) {
+    log('Pushing ' + path + '…');
+
+    // Check if file exists (to get SHA for update)
+    let sha;
+    const { ok: eOk, data: existing } = await ghFetch(`/repos/${repoFullName}/contents/${path}`, 'GET', null, token);
+    if (eOk) sha = existing.sha;
+
+    const body = {
+      message: sha ? `update ${path}` : `add ${path}`,
+      content: b64(content),
+    };
+    if (sha) body.sha = sha;
+
+    const { ok: fOk, data: fData } = await ghFetch(`/repos/${repoFullName}/contents/${path}`, 'PUT', body, token);
+    if (fOk) {
+      log('  ✓ ' + path, 'ok');
+    } else {
+      log('  ✗ ' + path + ': ' + (fData.message || 'error'), 'err');
+    }
+  }
+
+  log('');
+  log('Done! ✓', 'ok');
+  const repoUrl = `https://github.com/${repoFullName}`;
+  document.getElementById('done').style.display = 'block';
+  document.getElementById('done').innerHTML = `✅ Pushed to GitHub → <a href="${repoUrl}" target="_blank">${repoUrl}</a>`;
+
+  btn.disabled = false;
+  btn.textContent = 'Push to GitHub →';
+}
+</script>
+</body>
+</html>
